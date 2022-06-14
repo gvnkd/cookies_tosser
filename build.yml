@@ -35,7 +35,7 @@ defaults:
       enable: true
       execute: |
         [[ "${imageSourceRepo:-x}" != "x" ]] && SRC="${imageSourceRepo}/${imageName}" || SRC="${imageName}" ; docker tag ${SRC}:${tag} ${imageName}:${tag}
-    pop_image_arti_to_ecr: &pop_image_arti_to_ecr
+    image_arti_to_ecr: &image_arti_to_ecr
     - <<: *image_defaults
       pushTo:
         - ecr
@@ -52,23 +52,6 @@ defaults:
         <<: *postBuild_defaults
         enable: true
         execute: "docker tag docker-local.registry.domain.tld/${imageName}:${tag} ${imageName}:${tag}"
-    image_ptperf_to_ecr: &image_ptperf_to_ecr
-      - <<: *image_defaults
-        pushTo:
-          - ecr
-        sourcesFetch:
-          <<: *sourceFetch_defaults
-          enable: false
-        preBuild:
-          <<: *preBuild_defaults
-          enable: true
-          execute: "docker pull ecr.compute.amazonaws.com:5000/${imageName}:${tag}"
-        build:
-          enable: false
-        postBuild:
-          <<: *postBuild_defaults
-          enable: true
-          execute: "docker tag ecr.compute.amazonaws.com:5000/${imageName}:${tag} ${imageName}:${tag}"
 
 registry:
   artifactory:
