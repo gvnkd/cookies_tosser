@@ -1,0 +1,6 @@
+[ArtifactoryOS]
+name=Artifactory OS
+baseurl=http://artifactory-proxy/yum-ext-infra-centos-remote/$releasever/os/$basearch/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=0

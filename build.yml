@@ -1,0 +1,301 @@
+---
+defaults:
+  image: &image_defaults
+    enable: true
+    sourcesFetch: &sourceFetch_defaults
+      enable: true
+    preBuild: &preBuild_defaults
+      enable: false
+      execute: "/usr/bin/env false"
+    build: &build_defaults
+      enable: true
+      path: "./"
+    postBuild: &postBuild_defaults
+      enable: false
+      execute: "/usr/bin/env false"
+    pushTo: &pushTo_defaults
+      - artifactory
+      - ecr
+    promote: false
+  fetch_and_retag: &fetch_and_retag
+    <<: *image_defaults
+    sourceRepo: ""
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      enable: false
+    preBuild:
+      <<: *preBuild_defaults
+      enable: true
+      execute: |
+        [[ "${imageSourceRepo:-x}" != "x" ]] && SRC="${imageSourceRepo}/${imageName}" || SRC="${imageName}" ; docker pull ${SRC}:${tag}
+    build:
+      enable: false
+    postBuild:
+      <<: *postBuild_defaults
+      enable: true
+      execute: |
+        [[ "${imageSourceRepo:-x}" != "x" ]] && SRC="${imageSourceRepo}/${imageName}" || SRC="${imageName}" ; docker tag ${SRC}:${tag} ${imageName}:${tag}
+    pop_image_arti_to_ecr: &pop_image_arti_to_ecr
+    - <<: *image_defaults
+      pushTo:
+        - ecr
+      sourcesFetch:
+        <<: *sourceFetch_defaults
+        enable: false
+      preBuild:
+        <<: *preBuild_defaults
+        enable: true
+        execute: "docker pull docker-local.registry.domain.tld/${imageName}:${tag}"
+      build:
+        enable: false
+      postBuild:
+        <<: *postBuild_defaults
+        enable: true
+        execute: "docker tag docker-local.registry.domain.tld/${imageName}:${tag} ${imageName}:${tag}"
+    image_ptperf_to_ecr: &image_ptperf_to_ecr
+      - <<: *image_defaults
+        pushTo:
+          - ecr
+        sourcesFetch:
+          <<: *sourceFetch_defaults
+          enable: false
+        preBuild:
+          <<: *preBuild_defaults
+          enable: true
+          execute: "docker pull ecr.compute.amazonaws.com:5000/${imageName}:${tag}"
+        build:
+          enable: false
+        postBuild:
+          <<: *postBuild_defaults
+          enable: true
+          execute: "docker tag ecr.compute.amazonaws.com:5000/${imageName}:${tag} ${imageName}:${tag}"
+
+registry:
+  artifactory:
+    url: "docker-local.registry.domain.tld"
+    needLogin: true
+  ecr:
+    url: "dkr.ecr.eu-west-1.amazonaws.com"
+    needLogin: true
+    loginHelper: "aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin dkr.ecr.eu-west-1.amazonaws.com"
+
+images:
+  - <<: *image_defaults
+    name: "base_centos7"
+    tags:
+      - 20200922
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repository"
+      checkout: "master"
+    build:
+      <<: *build_defaults
+      path: "dockerfiles/10-base_centos7"
+  - <<: *image_defaults
+    name: "base_ubuntu"
+    tags:
+      - 18.04
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repository"
+      checkout: "master"
+    build:
+      <<: *build_defaults
+      path: "dockerfiles/10-base_ubuntu_1804"
+  - <<: *image_defaults
+    name: "alerta-server"
+    tags:
+      - v1.0.3
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repo/alerta"
+      checkout: "${tag}"
+    preBuild:
+      <<: *preBuild_defaults
+      enable: true
+      execute: "cp -av alerta-contrib/plugins alerta/"
+    build:
+      <<: *build_defaults
+      path: "alerta/"
+  - <<: *image_defaults
+    name: "alerta-webui"
+    tags:
+      - v1.0.2
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repo/alerta"
+      checkout: "${tag}"
+    build:
+      <<: *build_defaults
+      path: "alerta-webui/"
+  - <<: *image_defaults
+    name: "couchlabs_exporter"
+    tags:
+      - v1.0.1
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repo/cbprometheus_python"
+      checkout: "${tag}"
+  - <<: *image_defaults
+    name: "msteams_exporter"
+    tags:
+      - v1.4.1
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      enable: false
+    preBuild:
+      <<: *preBuild_defaults
+      enable: true
+      execute: "docker pull quay.io/prometheusmsteams/prometheus-msteams:${tag}"
+    build:
+      enable: false
+    postBuild:
+      <<: *postBuild_defaults
+      enable: true
+      execute: "docker tag quay.io/prometheusmsteams/prometheus-msteams:${tag} msteams_exporter:${tag}"
+  - <<: *fetch_and_retag
+    name: "mongo"
+    tags:
+      - 4.2
+  - <<: *fetch_and_retag
+    name: "influxdb"
+    tags:
+      - 1.8.3-alpine
+    pushTo:
+      - artifactory
+      - ecr
+  - <<: *fetch_and_retag
+    name: "mongodb"
+    tags:
+      - 4.4.3
+    sourceRepo: "bitnami"
+    pushTo:
+      - artifactory
+      - ecr
+  - <<: *fetch_and_retag
+    name: "dashboard"
+    tags:
+      - v2.2.0
+    sourceRepo: "kubernetesui"
+    pushTo:
+      - artifactory
+      - ecr
+  - <<: *fetch_and_retag
+    name: "kubernetes-monitor"
+    tags:
+      - 1.0.13
+    sourceRepo: "rapid7"
+    pushTo:
+      - artifactory
+      - ecr
+  - <<: *fetch_and_retag
+    name: "prometheus"
+    tags:
+      - v2.16.0
+    sourceRepo: "prom"
+  - <<: *fetch_and_retag
+    name: "alertmanager"
+    tags:
+      - v0.20.0
+    sourceRepo: "prom"
+  - <<: *fetch_and_retag
+    name: "blackbox-exporter"
+    tags:
+      - v0.18.0
+    sourceRepo: "prom"
+  - <<: *fetch_and_retag
+    name: "consul-exporter"
+    tags:
+      - v0.7.1
+    sourceRepo: "prom"
+  - <<: *fetch_and_retag
+    name: "elasticsearch_exporter"
+    tags:
+      - 1.1.0
+    sourceRepo: "justwatch"
+  - <<: *fetch_and_retag
+    name: "prometheus-es-exporter"
+    tags:
+      - 0.11.2
+    sourceRepo: "braedon"
+  - <<: *fetch_and_retag
+    name: "victoria-metrics"
+    tags:
+      - v1.32.2
+    sourceRepo: "victoriametrics"
+  - <<: *fetch_and_retag
+    name: "registry"
+    tags:
+      - 2
+      - 2.7.1
+    pushTo:
+      - artifactory
+      - ecr
+  - <<: *fetch_and_retag
+    name: "nginx"
+    tags:
+      - 1.17.4
+  - <<: *image_defaults
+    name: "nginx-ldap-auth"
+    tags:
+      - rc-0.0.6
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repo/nginx-ldap-auth"
+      checkout: "${tag}"
+# Artifactory section
+  - <<: *image_defaults
+    name: "artifactory-pro"
+    tags:
+      - 4.7.1
+      - 5.7.0
+      - 5.11.8
+      - 6.23.7
+      - 7.16.3
+    pushTo:
+      - artifactory
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      enable: false
+    preBuild:
+      <<: *preBuild_defaults
+      enable: true
+      execute: "docker pull jfrog-docker-reg2.bintray.io/jfrog/artifactory-pro:${tag}"
+    build:
+      enable: false
+    postBuild:
+      <<: *postBuild_defaults
+      enable: true
+      execute: "docker tag jfrog-docker-reg2.bintray.io/jfrog/artifactory-pro:${tag} artifactory-pro:${tag}"
+
+  # fluent-bit
+  - <<: *fetch_and_retag
+    name: "fluent-bit"
+    sourceRepo: "fluent"
+    tags:
+      - 1.6.8
+    pushTo:
+      - artifactory
+      - ecr
+  # Grafana
+  - <<: *image_defaults
+    name: "grafana-active-dev"
+    tags:
+      - 7.0.4
+      - 7.5.5
+    pushTo:
+      - ecr
+    sourcesFetch:
+      <<: *sourceFetch_defaults
+      bitbucket: "repo/docker-grafana"
+      checkout: "v1.1.5"
+    preBuild:
+      <<: *preBuild_defaults
+      enable: true
+      execute: "GRAFANA_VERSION=${tag} DASHBOARDS_COLLECTION=active-dev IMAGE_TAG=${tag}-proj ./build.sh --build-arg http_proxy=http://10.20.0.1:8080 --build-arg https_proxy=http://10.20.0.1:8080"
+    build:
+      enable: false
+    postBuild:
+      <<: *postBuild_defaults
+      enable: true
+      execute: "docker tag grafana:${tag}-proj grafana-active-dev:${tag}"

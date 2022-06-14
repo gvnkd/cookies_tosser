@@ -1,0 +1,119 @@
+#!/usr/bin/groovy
+@Grab('org.yaml:snakeyaml:1.17')
+import org.yaml.snakeyaml.Yaml
+
+def workspaceDir = SEED_JOB.getWorkspace()
+def workDir = "${workspaceDir}/dockerfiles"
+def configFile = "build.yml"
+print("Loading config from ${workDir}/${configFile}")
+def config = new Yaml().load(("${workDir}/${configFile}" as File).text)
+def jobsFolder = 'dockerImages'
+
+folder("${jobsFolder}") {
+    displayName('Docker image builders')
+    description('Jobs to build and publish docker images')
+}
+
+for (image in config.images) {
+    job("${jobsFolder}/build_docker_image_${image.name}") {
+        description "Build a ${image.name} docker image and push it to a registry"
+        label('aws-cli')
+        parameters {
+            booleanParam('FORCE_PROMOTE', false)
+        }
+        if (image.cron) {
+            triggers {
+                cron("${image.cron}")
+            }
+        }
+        if (image.sourcesFetch.enable) {
+            parameters {
+                stringParam('BRANCH', "${image.sourcesFetch.checkout}")
+// disable custom tags
+//                stringParam('IMAGE_TAG', "", "if empty build all default tags")
+            }
+            scm {
+              git {
+                branch '${BRANCH}'
+                remote {
+                  if (image.sourcesFetch.containsKey('bitbucket')) {
+                      credentials('git-bitbucket')
+                      url("git@bitbucket.org:${image.sourcesFetch.bitbucket}.git")
+                  }
+                }
+                extensions {
+                    submoduleOptions {
+                        disable(false)
+                    }
+                }
+              }
+            }
+        }
+        wrappers {
+            colorizeOutput()
+            timestamps()
+            credentialsBinding {
+                usernamePassword('DOCKER_USERNAME', 'DOCKER_PASSWORD', 'artifactory-credentials')
+                usernamePassword('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'jenkins_ci')
+            }
+        }
+        steps {
+            environmentVariables {
+                envs(imageName: "${image.name}",
+                     imageTags: "${image.tags.join(' ')}",
+                     imageSourceRepo: "${image.sourceRepo}"
+                    )
+            }
+          if (image.preBuild.enable) {
+              shell("""#!/usr/bin/env bash
+                |set -euo pipefail
+                |echo "Perform a preBuild step"
+                |for tag in \${imageTags}; do
+                |  ${image.preBuild.execute}
+                |done
+              """.stripMargin())
+          }
+          if (image.build.enable) {
+              shell("""#!/usr/bin/env bash
+                |set -euo pipefail
+                |echo "Perform a build step"
+                |pushd ${image.build.path}
+                |for tag in \${imageTags}; do
+                |  echo "building \${tag}"
+                |  docker build -t ${image.name}:\${tag} .
+                |done
+              """.stripMargin())
+          }
+          if (image.postBuild.enable) {
+              shell("""#!/usr/bin/env bash
+                |set -euo pipefail
+                |echo "Perform a postBuild step"
+                |for tag in \${imageTags}; do
+                |  ${image.postBuild.execute}
+                |done
+              """.stripMargin())
+          }
+          for (regName in image.pushTo) {
+            def reg = config.registry[regName]
+            if (reg.needLogin) {
+                def loginCmd="docker login -u \${DOCKER_USERNAME} -p \${DOCKER_PASSWORD} \$(echo ${reg.url} | cut -d'/' -f1)"
+                if ('loginHelper' in reg) {
+                  loginCmd=reg.loginHelper
+                }
+                shell("""#!/usr/bin/env bash
+                |echo "login to docker registry ${regName}"
+                |${loginCmd}
+                """.stripMargin())
+            }
+            shell("""#!/usr/bin/env bash
+                |echo "Push image to ${regName} registry"
+                |for tag in \${imageTags}; do
+                |  echo "pushing \${tag}"
+                |  docker tag ${image.name}:\${tag} ${reg.url}/${image.name}:\${tag}
+                |  docker push ${reg.url}/${image.name}:\${tag}
+                |done
+                """.stripMargin())
+          }
+        }
+    }
+}

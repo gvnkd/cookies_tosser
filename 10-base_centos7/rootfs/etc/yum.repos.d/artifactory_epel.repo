@@ -1,0 +1,6 @@
+[ArtifactoryEPEL]
+name=Artifactory EPEL
+baseurl=http://artifactory-proxy/yum-ext-infra-epel-remote/$releasever/$basearch/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=0
